@@ -1,35 +1,3 @@
-# React + TypeScript + Vite
-
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
-
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
-```
-
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
 # Signalroom
 
 AI incident intelligence for calmer, faster production response.
@@ -41,9 +9,12 @@ Signalroom turns a messy production report into an evidence-backed incident brie
 ```bash
 npm install
 npm run dev
+npm run dev:server
 ```
 
-Open `http://127.0.0.1:5173/`.
+Run the frontend and API in separate terminals, then open `http://127.0.0.1:5173/`.
+
+Copy `.env.example` to `.env` for the API. Without `OPENAI_API_KEY`, the server uses a deterministic demo provider. Add an OpenAI key to use the real LLM path.
 
 ## Validate
 
@@ -55,15 +26,25 @@ npm run build
 
 Read [PROJECT_GUIDE.md](PROJECT_GUIDE.md) for the product story, demo walkthrough, AI architecture, interview explanation, roadmap, and resume bullets.
 
-## Current prototype
+## Implemented capabilities
 
 - Editable incident intake
-- Deterministic analysis state for a no-key demo
+- Real OpenAI analysis with a safe deterministic fallback
+- Retrieved runbooks, deploy timeline, and service ownership context
+- Zod-validated structured incident JSON
+- JWT authentication with registration and login
+- File-backed saved investigations for local development
 - Incident brief, evidence, and action-plan views
-- Explainable model notes and confidence display
-- Collaboration save and notify feedback
+- Confidence and model reasoning notes
+- Evaluation metrics endpoint at `/api/evaluations`
+- Human approval endpoint before any production action
 - Responsive desktop and mobile layout
 
-## Recommended next build
+## API scripts
 
-Connect a backend analysis endpoint that retrieves runbooks, deploy history, and ownership data, then returns a validated structured incident schema. Keep human approval before any production action.
+```bash
+npm run dev:server
+npx tsc -p tsconfig.server.json --noEmit
+```
+
+The server stores local users and investigations under `data/`, which is intentionally gitignored.

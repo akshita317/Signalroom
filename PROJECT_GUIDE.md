@@ -46,9 +46,9 @@ Signalroom reduces the time between "something is wrong" and "we have a responsi
 7. Use **Why this read?** to explain temporal matching, negative evidence, and reversible-first reasoning.
 8. Click **Save & notify team** to show the collaboration workflow.
 
-## Where the AI belongs in a real version
+## Current architecture
 
-The current app is a polished working prototype with deterministic sample output. A production version would connect these pieces:
+The app now has a typed Express API. It uses a deterministic provider when no API key is configured and switches to OpenAI when `OPENAI_API_KEY` is present:
 
 ```text
 Slack / PagerDuty / Jira / GitHub / metrics
@@ -57,7 +57,7 @@ Slack / PagerDuty / Jira / GitHub / metrics
           Signal ingestion service
                     |
                     v
-        Normalize + redact sensitive data
+       Normalize + redact sensitive data
                     |
                     v
        Retrieval over runbooks and history
@@ -71,6 +71,8 @@ Slack / PagerDuty / Jira / GitHub / metrics
                     v
        Human review and team notification
 ```
+
+The local backend exposes authentication, analysis, saved investigations, evaluation metrics, and approval routes. Local persistence uses JSON files so the project can run without a database; replace this adapter with Postgres or a managed database for deployment.
 
 The model should return structured JSON, not free-form prose only. A useful result would include:
 
@@ -111,14 +113,15 @@ Build a small evaluation set from historical incidents. Measure:
 
 ## What to build next
 
-### Phase 1: Make the prototype genuinely AI-powered
+### Phase 1: Production hardening
 
-- Add a backend endpoint for incident analysis.
-- Connect an LLM provider through an environment variable.
-- Require structured JSON output with runtime validation.
-- Add a loading, error, retry, and low-confidence state.
+- Replace JSON persistence with Postgres.
+- Add secret redaction before model calls.
+- Add rate limits, refresh-token rotation, and account recovery.
+- Add GitHub API ingestion instead of seeded deploy context.
+- Add a real evaluation dataset and CI evaluation gate.
 
-### Phase 2: Add useful context
+### Phase 2: More useful context
 
 - Import GitHub deploys and pull requests.
 - Add Slack or PagerDuty ingestion.
@@ -126,7 +129,7 @@ Build a small evaluation set from historical incidents. Measure:
 - Add service ownership and escalation rules.
 - Store investigations so users can revisit them.
 
-### Phase 3: Make it production-grade
+### Phase 3: Production operations
 
 - Add authentication and team workspaces.
 - Redact secrets before sending text to a model.
@@ -146,7 +149,7 @@ Build a small evaluation set from historical incidents. Measure:
 
 ### If asked what is not finished
 
-> The current version is a frontend prototype with deterministic analysis so the workflow can be evaluated without an API key. The next step is the backend analysis contract and an evaluation set. I intentionally designed the UI around that contract first, because it makes the model replaceable and keeps product behavior testable.
+> The prototype now has a real backend contract, authentication, persistence, structured validation, and approval workflow. Without an API key it deliberately uses a deterministic provider so the demo remains reproducible. The next production steps are secret redaction, managed persistence, live GitHub ingestion, and evaluation against historical incidents.
 
 ## Resume bullets
 
