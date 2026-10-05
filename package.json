@@ -6,11 +6,17 @@
   "scripts": {
     "dev": "vite",
     "dev:server": "tsx server/index.ts",
+    "start": "tsx server/index.ts",
     "build": "tsc -b && vite build",
+    "test": "tsx --test test/freshdesk.test.ts",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "mcp": "tsx server/mcp-stdio.ts",
+    "demo:agent": "tsx scripts/agent-demo.ts",
+    "typecheck": "tsc -p tsconfig.server.json --noEmit"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^18.0.5",

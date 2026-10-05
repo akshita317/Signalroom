@@ -98,6 +98,7 @@ function App() {
         <header className="topbar"><div className="breadcrumbs"><span>Command center</span><span>/</span><strong>New investigation</strong></div><div className="top-actions"><button className="icon-button" aria-label="Search"><Search size={18} /></button><button className="help-button"><CircleHelp size={16} /> Help</button><button className="avatar avatar-small" onClick={() => setAuthOpen(true)} aria-label="Open account">{user?.name.slice(0, 2).toUpperCase() ?? 'AK'}</button></div></header>
         <div className="content-wrap">
           <section className="page-heading"><div><div className="kicker"><span className="live-dot"></span> Incident intelligence</div><h1>Make the next move obvious.</h1><p>Turn noisy production signals into a calm, accountable response.</p></div><button className="secondary-button" onClick={loadSample}><Plus size={16} /> New investigation</button></section>
+          <FreshdeskDemo />
           <div className="workspace-grid">
             <section className="work-column">
               <div className="panel composer-panel"><div className="panel-header"><div><span className="panel-label">01 / Signal intake</span><h2>What happened?</h2></div><button className="quiet-button" onClick={loadSample}>Load sample</button></div><label className="input-label" htmlFor="incident">Paste an incident, ticket, or Slack thread</label><textarea id="incident" value={incident} onChange={(event) => setIncident(event.target.value)} placeholder="Describe what your team is seeing..." /><div className="composer-footer"><span className="char-count">{incident.length} characters <span>·</span> English</span><button className="analyze-button" onClick={analyze}><Sparkles size={16} /> {hasAnalysis ? 'Analyze with Signalroom' : 'Analyzing signal...'}</button></div></div>
@@ -115,6 +116,39 @@ function App() {
 }
 
 function MoreDots() { return <span className="more-dots" aria-hidden="true">•••</span> }
+type DemoTicket = { id: number; subject: string; description?: string; description_text?: string; status: number; priority: number; requester?: { name?: string; email?: string } }
+function FreshdeskDemo() {
+  const [query, setQuery] = useState('')
+  const [tickets, setTickets] = useState<DemoTicket[]>([])
+  const [page, setPage] = useState(1)
+  const [hasNextPage, setHasNextPage] = useState(false)
+  const [selected, setSelected] = useState<DemoTicket | null>(null)
+  const [message, setMessage] = useState('')
+  const [provider, setProvider] = useState('mock')
+  const loadTickets = async (nextPage = 1) => {
+    const endpoint = query.trim() ? `/api/freshdesk/search?q=${encodeURIComponent(query)}` : `/api/freshdesk/tickets?page=${nextPage}&perPage=2`
+    const response = await fetch(endpoint)
+    const body = await response.json() as { tickets?: DemoTicket[]; hasNextPage?: boolean; error?: string; provider?: string; strategy?: string }
+    if (body.provider) setProvider(body.provider)
+    if (!response.ok) { setMessage(body.error ?? 'Freshdesk request failed'); return }
+    setTickets(body.tickets ?? [])
+    setHasNextPage(Boolean(body.hasNextPage))
+    setPage(nextPage)
+    setMessage(query.trim() ? `${body.tickets?.length ?? 0} matching tickets (${body.strategy ?? 'search'})` : `Page ${nextPage} loaded`)
+  }
+  const inspectTicket = async (id: number) => {
+    const response = await fetch(`/api/freshdesk/tickets/${id}`)
+    const body = await response.json() as { ticket?: DemoTicket; error?: string }
+    if (!response.ok) { setMessage(body.error ?? 'Ticket lookup failed'); return }
+    setSelected(body.ticket ?? null)
+  }
+  const tryUnsupportedAction = async () => {
+    const response = await fetch('/api/freshdesk/mcp/call', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'update_ticket', input: { id: selected?.id ?? 1001 } }) })
+    const body = await response.json() as { error?: string }
+    setMessage(response.ok ? 'Unexpectedly accepted an unsupported action' : `Blocked safely: ${body.error ?? 'Unsupported tool'}`)
+  }
+  return <section className="panel freshdesk-panel"><div className="panel-header"><div><span className="panel-label">Connector demo</span><h2>Freshdesk tickets</h2></div><span className="connector-badge">Read-only · {provider === 'mock' ? 'mock mode' : 'live Freshdesk'}</span></div><p className="freshdesk-intro">Search and inspect merchant support context through the same primitives exposed to an Agent Studio agent.</p><div className="freshdesk-controls"><input value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void loadTickets() }} placeholder="Search tickets, e.g. payment" aria-label="Search Freshdesk tickets" /><button className="analyze-button" onClick={() => void loadTickets()}><Search size={15} /> Search</button><button className="quiet-button" onClick={() => { setQuery(''); void loadTickets() }}>List</button></div><div className="freshdesk-results">{tickets.map((ticket) => <button className="ticket-row" key={ticket.id} onClick={() => void inspectTicket(ticket.id)}><span className="ticket-id">#{ticket.id}</span><span><strong>{ticket.subject}</strong><small>{ticket.requester?.name ?? 'Unknown requester'} · Priority {ticket.priority}</small></span><ArrowUpRight size={15} /></button>)}{tickets.length === 0 && <span className="empty-state">Load the demo tickets or search for a ticket.</span>}</div><div className="freshdesk-footer"><span>{message || 'No credentials required for the local demo.'}</span><span className="pagination"><button className="quiet-button" disabled={page === 1 || Boolean(query.trim())} onClick={() => void loadTickets(page - 1)}>Previous</button><button className="quiet-button" disabled={!hasNextPage || Boolean(query.trim())} onClick={() => void loadTickets(page + 1)}>Next</button></span></div>{selected && <div className="ticket-detail"><div><span className="panel-label">Ticket #{selected.id}</span><h3>{selected.subject}</h3><p>{selected.description_text ?? selected.description}</p><small>{selected.requester?.email ?? 'Requester email unavailable'}</small></div><button className="quiet-button" onClick={() => void tryUnsupportedAction()}>Test blocked write</button></div>}</section>
+}
 function ActionItem({ number, text, owner, requiresApproval }: { number: string; text: string; owner: string; requiresApproval: boolean }) { return <div className="action-item"><span className="action-number">{number}</span><div><strong>{text}</strong><small>Owner: {owner} · {requiresApproval ? 'Approval required' : 'Investigation step'}</small></div><button className="action-check" aria-label={`Mark ${text} ready`}><Check size={14} /></button></div> }
 function AuthModal({ mode, fields, error, onModeChange, onChange, onSubmit, onClose }: { mode: 'login' | 'register'; fields: { name: string; email: string; password: string }; error: string; onModeChange: (mode: 'login' | 'register') => void; onChange: (field: 'name' | 'email' | 'password', value: string) => void; onSubmit: () => void; onClose: () => void }) { return <div className="modal-backdrop"><div className="auth-modal"><button className="modal-close" onClick={onClose} aria-label="Close authentication"><X size={17} /></button><span className="panel-label">Signalroom workspace</span><h2>{mode === 'login' ? 'Sign in to investigate' : 'Create your engineer account'}</h2><p className="auth-copy">Analysis, saved investigations, and approval records belong to an authenticated workspace.</p>{mode === 'register' && <label>Name<input value={fields.name} onChange={(event) => onChange('name', event.target.value)} placeholder="Your name" /></label>}<label>Email<input type="email" value={fields.email} onChange={(event) => onChange('email', event.target.value)} placeholder="you@company.com" /></label><label>Password<input type="password" value={fields.password} onChange={(event) => onChange('password', event.target.value)} placeholder="At least 8 characters" /></label>{error && <p className="auth-error">{error}</p>}<button className="analyze-button auth-submit" onClick={onSubmit}>{mode === 'login' ? 'Sign in' : 'Create account'}</button><button className="mode-switch" onClick={() => onModeChange(mode === 'login' ? 'register' : 'login')}>{mode === 'login' ? 'Need an account? Create one' : 'Already have an account? Sign in'}</button></div></div> }
 

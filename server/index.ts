@@ -3,10 +3,13 @@ import cors from 'cors'
 import express, { type NextFunction, type Request, type Response } from 'express'
 import jwt from 'jsonwebtoken'
 import crypto from 'node:crypto'
+import path from 'node:path'
 import { z } from 'zod'
 import { analyzeIncident, getFallbackAnalysis } from './analysis.js'
 import { retrieveContext } from './retrieval.js'
 import { approveInvestigation, createUser, getUser, listInvestigations, saveInvestigation, verifyUser } from './store.js'
+import { FreshdeskApiError, FreshdeskClient, FreshdeskRateLimitError, MockFreshdeskClient } from './freshdesk.js'
+import { callFreshdeskTool, freshdeskTools } from './mcp.js'
 import type { User } from './types.js'
 
 const app = express()
@@ -75,9 +78,65 @@ app.post('/api/investigations/:id/approve', requireAuth, (request: AuthRequest, 
 app.get('/api/context', requireAuth, (_request, response) => response.json({ runbooks: 3, deploys: 2, owners: 3, sources: ['Runbook library', 'GitHub deploy history', 'Service catalog'] }))
 app.get('/api/evaluations', requireAuth, (_request, response) => response.json({ dataset: 'signalroom-starter-set', evaluatedCases: 12, metrics: { signalExtractionAccuracy: 0.92, faultDomainAccuracy: 0.83, evidenceGrounding: 0.88, confidenceCalibration: 0.79, actionUsefulness: 0.86 }, note: 'Starter metrics are computed from the seeded evaluation set. Replace with historical incidents before making product claims.' }))
 
+const freshdesk = process.env.FRESHDESK_API_KEY && process.env.FRESHDESK_DOMAIN
+  ? new FreshdeskClient({ domain: process.env.FRESHDESK_DOMAIN, apiKey: process.env.FRESHDESK_API_KEY })
+  : new MockFreshdeskClient()
+const freshdeskProvider = freshdesk instanceof MockFreshdeskClient ? 'mock' : 'freshdesk'
+const agentView = { redactPii: process.env.FRESHDESK_REDACT_PII !== 'false' }
+const optionalNumber = (value: unknown) => value === undefined || value === '' ? undefined : Number(value)
+const optionalString = (value: unknown) => typeof value === 'string' && value.trim() ? value.trim() : undefined
+app.get('/api/freshdesk/tools', (_request, response) => response.json({ tools: freshdeskTools, provider: freshdeskProvider }))
+app.get('/api/freshdesk/verify', async (_request, response) => {
+  try {
+    const agent = await freshdesk.verifyCredentials()
+    const rateLimit = freshdesk instanceof FreshdeskClient ? freshdesk.getRateLimitStatus() : null
+    return response.json({ connected: true, provider: freshdeskProvider, agent, rateLimit })
+  } catch (error) { return sendFreshdeskError(error, response) }
+})
+app.get('/api/freshdesk/tickets', async (request, response) => {
+  try {
+    const page = Number(request.query.page ?? 1)
+    const perPage = Number(request.query.perPage ?? 30)
+    return response.json({ ...await freshdesk.listTickets(page, perPage), provider: freshdeskProvider })
+  } catch (error) { return sendFreshdeskError(error, response) }
+})
+app.get('/api/freshdesk/tickets/:id', async (request, response) => {
+  try { return response.json({ ticket: await freshdesk.getTicket(Number(request.params.id)), provider: freshdeskProvider }) }
+  catch (error) { return sendFreshdeskError(error, response) }
+})
+app.get('/api/freshdesk/search', async (request, response) => {
+  try {
+    const { q, status, priority, tag, createdAfter, updatedAfter, page } = request.query
+    const result = await freshdesk.searchTickets({
+      keyword: optionalString(q), status: optionalNumber(status), priority: optionalNumber(priority), tag: optionalString(tag),
+      createdAfter: optionalString(createdAfter), updatedAfter: optionalString(updatedAfter), page: optionalNumber(page),
+    })
+    return response.json({ ...result, provider: freshdeskProvider })
+  } catch (error) { return sendFreshdeskError(error, response) }
+})
+app.post('/api/freshdesk/mcp/call', async (request, response) => {
+  try { return response.json({ result: await callFreshdeskTool(freshdesk, request.body?.name, request.body?.input, agentView), provider: freshdeskProvider }) }
+  catch (error) { return sendFreshdeskError(error, response) }
+})
+
+if (process.env.NODE_ENV !== 'production') {
+  app.get('/', (_request, response) => response.type('text').send('Freshdesk API is running. Open http://127.0.0.1:5173/ for the demo UI.'))
+}
+
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static(path.resolve('dist')))
+  app.get(/^(?!\/api).*/, (_request, response) => response.sendFile(path.resolve('dist/index.html')))
+}
+
 app.use((error: Error, _request: Request, response: Response, _next: NextFunction) => response.status(500).json({ error: error.message }))
 app.listen(port, () => console.log(`Signalroom API listening on http://127.0.0.1:${port}`))
 
 function publicUser(user: User) { return { id: user.id, name: user.name, email: user.email, createdAt: user.createdAt } }
+function sendFreshdeskError(error: unknown, response: Response) {
+  if (error instanceof FreshdeskRateLimitError) return response.status(429).json({ error: error.message, retryAfterSeconds: error.retryAfterSeconds })
+  if (error instanceof FreshdeskApiError) return response.status(error.status).json({ error: error.message })
+  if (error instanceof z.ZodError) return response.status(400).json({ error: 'Invalid tool input', issues: error.issues.map((issue) => `${issue.path.join('.') || 'input'}: ${issue.message}`) })
+  return response.status(400).json({ error: error instanceof Error ? error.message : 'Freshdesk request failed' })
+}
 
 export default app
